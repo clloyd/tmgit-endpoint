@@ -17,31 +17,9 @@ var semver = require('semver');
 
 var which = require('which');
 
-function createRemoteStrings(auth, hostname) {
-  var authString = auth ? (encodeURIComponent(auth.username) + ':' + encodeURIComponent(auth.password) + '@') : '';
-  if (hostname !== 'github.com') {
-    // Github Enterprise
-    this.remoteString = 'https://' + authString + hostname + '/'
-    this.apiRemoteString = 'https://' + authString + hostname + '/api/v3/'
-  } else {
-    this.remoteString = 'https://' + authString + 'github.com/';
-    this.apiRemoteString = 'https://' + authString + 'api.github.com/';
-  }
-}
 
-// avoid storing passwords as plain text in config
-function encodeCredentials(auth) {
-  return new Buffer(encodeURIComponent(auth.username) + ':' + encodeURIComponent(auth.password)).toString('base64');
-}
-function decodeCredentials(str) {
-  var auth = new Buffer(str, 'base64').toString('ascii').split(':');
-  return {
-    username: decodeURIComponent(auth[0]),
-    password: decodeURIComponent(auth[1])
-  };
-}
 
-var GithubLocation = function(options, ui) {
+var GitlabLocation = function(options, ui) {
 
   // ensure git is installed
   try {
@@ -55,17 +33,6 @@ var GithubLocation = function(options, ui) {
 
   this.max_repo_size = (options.maxRepoSize || 100) * 1024 * 1024;
 
-  if (options.username && !options.auth) {
-    options.auth = encodeCredentials(options);
-    // NB deprecate old auth eventually
-    // delete options.username;
-    // delete options.password;
-  }
-
-  if (options.auth) {
-    this.auth = decodeCredentials(options.auth);
-  }
-
   this.execOpt = {
     cwd: options.tmpDir,
     timeout: options.timeout * 1000,
@@ -73,10 +40,8 @@ var GithubLocation = function(options, ui) {
     maxBuffer: this.max_repo_size
   };
 
-  this.remote = options.remote;
-  this.hostname = options.hostname;
+  this.remoteString = "http://git.tm.tmcs"
 
-  createRemoteStrings.call(this, this.auth, this.hostname);
 }
 
 function clearDir(dir) {
@@ -119,121 +84,13 @@ function checkStripDir(dir) {
   });
 }
 
-function configureCredentials(config, ui) {
-  var auth = {};
-
-  return Promise.resolve()
-  .then(function() {
-    ui.log('info', 'If using two-factor authentication or to avoid using your password you can generate an access token at %https://'+config.hostname+'/settings/applications%.');
-    return ui.input('Enter your GitHub username');
-  })
-  .then(function(username) {
-    auth.username = username;
-    return ui.input('Enter your GitHub password or access token', null, true);
-  })
-  .then(function(password) {
-    auth.password = password;
-    return ui.confirm('Would you like to test these credentials?', true);
-  })
-  .then(function(test) {
-    if (!test)
-      return true;
-
-    return Promise.resolve()
-    .then(function() {
-      var remotes = {};
-      createRemoteStrings.call(remotes, auth, config.hostname);
-
-      return asp(request)({
-        uri: remotes.apiRemoteString + 'user',
-        headers: {
-          'User-Agent': 'jspm',
-          'Accept': 'application/vnd.github.v3+json'
-        },
-        followRedirect: false
-      });
-    })
-    .then(function(res) {
-      if (res.statusCode == 401) {
-        ui.log('warn', 'Provided GitHub credentials are not authorized, try re-entering your password or access token.');
-      }
-      else if (res.statusCode != 200) {
-        ui.log('warn', 'Invalid response code, %' + res.statusCode + '%');
-      }
-      else {
-        ui.log('ok', 'GitHub authentication is working successfully.');
-        return true;
-      }
-    }, function(err) {
-      ui.log('err', err.stack || err);
-    });
-  })
-  .then(function(authorized) {
-    if (!authorized)
-      return ui.confirm('Would you like to try new credentials?', true)
-      .then(function(redo) {
-        if (redo)
-          return configureCredentials(config, ui);
-      });
-    else
-      return encodeCredentials(auth);
-  });
-}
-
-function checkRateLimit(headers) {
-  if (headers.status.match(/^401/))
-    throw 'Unauthorized response for GitHub API.\n'
-    + 'Use %jspm endpoint config github% to reconfigure the credentials.';
-
-  if (headers['x-ratelimit-remaining'] != '0')
-    return;
-
-  var remaining = (headers['x-ratelimit-reset'] * 1000 - new Date(headers['date']).getTime()) / 60000;
-
-  if (this.auth)
-    return Promise.reject('\nGitHub rate limit reached, with authentication enabled.'
-        + '\nThe rate limit will reset in `' + Math.round(remaining) + ' minutes`.');
-
-  return Promise.reject('\nGitHub rate limit reached. To increase the limit use GitHub authentication.\n'
-      + 'Run %jspm endpoint config github% to set this up.');
-}
-
 
 // static configuration function
-GithubLocation.configure = function(config, ui) {
-  config.remote = config.remote || 'https://github.jspm.io';
+GitlabLocation.configure = function(config, ui) {
 
-  return Promise.resolve(ui.confirm('Are you setting up a GitHub Enterprise endpoint?', false))
-    .then(function(enterprise) {
-      config.hostname = 'github.com'
-      if (enterprise) {
-        return Promise.resolve(ui.input('Enter the hostname of your GitHub Enterprise server', 'github.com'))
-          .then(function(hostname) {
-            if (!hostname || hostname == '') {
-              return Promise.reject('Invalid hostname was entered.');
-            }
-            config.hostname = hostname
-            return
-        })
-      }
-    })
-    .then(function() {
-      return Promise.resolve(ui.confirm('Would you like to set up your GitHub credentials?', true))
-      .then(function(auth) {
-        if (auth)
-          return configureCredentials(config, ui)
-          .then(function(auth) {
-            config.auth = auth;
-          });
-        })
-    })
-    .then(function() {
-      config.maxRepoSize = config.maxRepoSize || 100;
-      return config;
-    });
 }
 
-GithubLocation.prototype = {
+GitlabLocation.prototype = {
 
   parse: function(name) {
     var parts = name.split('/');
